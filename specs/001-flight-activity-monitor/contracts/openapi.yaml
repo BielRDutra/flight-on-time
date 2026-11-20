@@ -1,0 +1,521 @@
+openapi: 3.1.0
+info:
+  title: Flight Activity Monitor API
+  version: 1.0.0
+  description: Informational airport, aircraft, weather, event, and push-subscription API.
+servers:
+  - url: https://api.example.invalid
+    description: Placeholder; deployment host is selected during implementation.
+tags:
+  - name: Airports
+  - name: Activity
+  - name: Weather
+  - name: Notifications
+paths:
+  /v1/installations:
+    post:
+      tags: [Notifications]
+      summary: Register an installation without creating a user account
+      description: >
+        Requires same-origin HTTPS. The Android credential is returned once and must be kept in
+        secure device storage. Web clients receive a Secure, HttpOnly, SameSite cookie.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [platform]
+              properties:
+                platform:
+                  type: string
+                  enum: [android, web]
+      responses:
+        "201":
+          description: Installation created
+          headers:
+            Set-Cookie:
+              description: Web-only secure session cookie
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [installationId]
+                properties:
+                  installationId:
+                    type: string
+                  androidCredential:
+                    type: string
+                    description: Returned only for Android; secret, returned once.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /v1/airports:
+    get:
+      tags: [Airports]
+      summary: Search selectable airports
+      parameters:
+        - in: query
+          name: search
+          required: false
+          schema:
+            type: string
+            maxLength: 80
+      responses:
+        "200":
+          description: Airports matching the optional search query
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Airport"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /v1/airports/{icao}/snapshot:
+    get:
+      tags: [Activity]
+      summary: Get the latest available airport activity snapshot
+      parameters:
+        - $ref: "#/components/parameters/AirportIcao"
+      responses:
+        "200":
+          description: Snapshot and explicit source freshness
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActivitySnapshot"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/SourceUnavailable"
+  /v1/airports/{icao}/events:
+    get:
+      tags: [Activity]
+      summary: List recent inferred events for an airport
+      parameters:
+        - $ref: "#/components/parameters/AirportIcao"
+        - in: query
+          name: since
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        "200":
+          description: Events are explicitly inferential and include source age
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/InferredEvent"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/airports/{icao}/weather:
+    get:
+      tags: [Weather]
+      summary: Get the latest available METAR and TAF context
+      parameters:
+        - $ref: "#/components/parameters/AirportIcao"
+      responses:
+        "200":
+          description: Available observations and forecasts with source times and validity
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeatherContext"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/SourceUnavailable"
+  /v1/live-tickets:
+    post:
+      tags: [Activity]
+      summary: Create a short-lived, single-use WebSocket ticket
+      security:
+        - InstallationBearer: []
+        - WebSessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [airportIcao]
+              properties:
+                airportIcao:
+                  type: string
+                  pattern: "^[A-Z0-9]{4}$"
+      responses:
+        "201":
+          description: Ticket expires within 60 seconds and can be used once
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ticket, expiresAt]
+                properties:
+                  ticket:
+                    type: string
+                  expiresAt:
+                    type: string
+                    format: date-time
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/push/subscriptions:
+    put:
+      tags: [Notifications]
+      summary: Register or update a consented installation's push subscription
+      security:
+        - InstallationBearer: []
+        - WebSessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PushSubscriptionInput"
+      responses:
+        "204":
+          description: Subscription and alert preferences saved
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+    delete:
+      tags: [Notifications]
+      summary: Revoke push delivery for this installation
+      security:
+        - InstallationBearer: []
+        - WebSessionCookie: []
+      responses:
+        "204":
+          description: Subscription disabled and delivery stopped
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+components:
+  parameters:
+    AirportIcao:
+      in: path
+      name: icao
+      required: true
+      schema:
+        type: string
+        pattern: "^[A-Z0-9]{4}$"
+  securitySchemes:
+    InstallationBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque installation secret
+    WebSessionCookie:
+      type: apiKey
+      in: cookie
+      name: fta_session
+  schemas:
+    Airport:
+      type: object
+      required: [icaoCode, name, latitude, longitude]
+      properties:
+        icaoCode:
+          type: string
+          pattern: "^[A-Z0-9]{4}$"
+        name:
+          type: string
+        latitude:
+          type: number
+          minimum: -90
+          maximum: 90
+        longitude:
+          type: number
+          minimum: -180
+          maximum: 180
+    AircraftObservation:
+      type: object
+      required: [latitude, longitude, source, observedAt, receivedAt]
+      properties:
+        icao24:
+          type: [string, "null"]
+        callsign:
+          type: [string, "null"]
+        latitude:
+          type: number
+          minimum: -90
+          maximum: 90
+        longitude:
+          type: number
+          minimum: -180
+          maximum: 180
+        altitudeMeters:
+          type: [number, "null"]
+        headingDegrees:
+          type: [number, "null"]
+          minimum: 0
+          maximum: 359.999
+        groundSpeedMetersPerSecond:
+          type: [number, "null"]
+          minimum: 0
+        verticalRateMetersPerSecond:
+          type: [number, "null"]
+        source:
+          type: string
+        observedAt:
+          type: string
+          format: date-time
+        receivedAt:
+          type: string
+          format: date-time
+    ActivitySnapshot:
+      type: object
+      required: [airportIcao, sourceStatus, generatedAt, aircraft]
+      properties:
+        airportIcao:
+          type: string
+        sourceStatus:
+          type: string
+          enum: [current, stale, unavailable, limited]
+        generatedAt:
+          type: string
+          format: date-time
+        sourceUpdatedAt:
+          type: [string, "null"]
+          format: date-time
+        aircraft:
+          type: array
+          items:
+            $ref: "#/components/schemas/AircraftObservation"
+    InferredEvent:
+      type: object
+      required:
+        [eventId, airportIcao, category, firstObservedAt, lastObservedAt, confidence, sources, status]
+      properties:
+        eventId:
+          type: string
+        airportIcao:
+          type: string
+        category:
+          type: string
+          enum: [go_around, holding_or_orbit, diversion_candidate]
+        aircraftIcao24:
+          type: [string, "null"]
+        firstObservedAt:
+          type: string
+          format: date-time
+        lastObservedAt:
+          type: string
+          format: date-time
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        sources:
+          type: array
+          items:
+            type: object
+            required: [id, observedAt]
+            properties:
+              id:
+                type: string
+              observedAt:
+                type: string
+                format: date-time
+        status:
+          type: string
+          enum: [current, stale, expired]
+    WeatherObservation:
+      type: object
+      required: [airportIcao, rawMetar, observedAt, receivedAt, source]
+      properties:
+        airportIcao:
+          type: string
+        rawMetar:
+          type: string
+        observedAt:
+          type: string
+          format: date-time
+        receivedAt:
+          type: string
+          format: date-time
+        source:
+          type: string
+        decodedSummary:
+          type: object
+          additionalProperties: true
+    WeatherForecast:
+      type: object
+      required: [airportIcao, rawTaf, issuedAt, validFrom, validTo, receivedAt, source]
+      properties:
+        airportIcao:
+          type: string
+        rawTaf:
+          type: string
+        issuedAt:
+          type: string
+          format: date-time
+        validFrom:
+          type: string
+          format: date-time
+        validTo:
+          type: string
+          format: date-time
+        receivedAt:
+          type: string
+          format: date-time
+        source:
+          type: string
+        decodedSummary:
+          type: object
+          additionalProperties: true
+    WeatherContext:
+      type: object
+      required: [airportIcao, sourceStatus, generatedAt, impactLevel]
+      properties:
+        airportIcao:
+          type: string
+        sourceStatus:
+          type: string
+          enum: [current, stale, unavailable, limited]
+        generatedAt:
+          type: string
+          format: date-time
+        observation:
+          oneOf:
+            - $ref: "#/components/schemas/WeatherObservation"
+            - type: "null"
+        forecast:
+          oneOf:
+            - $ref: "#/components/schemas/WeatherForecast"
+            - type: "null"
+        impactLevel:
+          type: string
+          description: Weather-only context, not a probability or recommendation about flight diversion.
+          enum: [low, moderate, high, unknown]
+    PushSubscriptionInput:
+      type: object
+      required: [platform, subscription, preferences, consentAt]
+      properties:
+        platform:
+          type: string
+          enum: [android, web]
+        subscription:
+          description: Platform-specific push capability; treat as secret.
+          oneOf:
+            - $ref: "#/components/schemas/AndroidPushSubscription"
+            - $ref: "#/components/schemas/WebPushSubscription"
+        preferences:
+          type: array
+          items:
+            type: object
+            required: [airportIcao, categories, enabled]
+            properties:
+              airportIcao:
+                type: string
+              categories:
+                type: array
+                items:
+                  type: string
+                  enum: [go_around, holding_or_orbit, diversion_candidate]
+              enabled:
+                type: boolean
+        consentAt:
+          type: string
+          format: date-time
+    AndroidPushSubscription:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+          description: Android push token; never log or expose after registration.
+      additionalProperties: false
+    WebPushSubscription:
+      type: object
+      required: [endpoint, keys]
+      properties:
+        endpoint:
+          type: string
+          format: uri
+          description: Secret capability URL; never log or expose after registration.
+        keys:
+          type: object
+          required: [p256dh, auth]
+          properties:
+            p256dh:
+              type: string
+            auth:
+              type: string
+          additionalProperties: false
+      additionalProperties: false
+    Error:
+      type: object
+      required: [code, message, requestId]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        requestId:
+          type: string
+  responses:
+    BadRequest:
+      description: Invalid request input
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: Missing or invalid installation credential
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: Airport or resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    RateLimited:
+      description: Request or provider quota exceeded
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    SourceUnavailable:
+      description: Upstream provider unavailable or no report is available
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"

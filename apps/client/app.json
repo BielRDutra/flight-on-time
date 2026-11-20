@@ -1,0 +1,27 @@
+{
+  "expo": {
+    "name": "Flight On Time",
+    "slug": "flight-on-time",
+    "scheme": "flightontime",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "plugins": [
+      "expo-router",
+      "expo-sqlite",
+      "expo-secure-store",
+      "expo-notifications",
+      "@react-native-google-signin/google-signin"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "android": {
+      "package": "com.flightontime.app"
+    },
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}

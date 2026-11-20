@@ -1,0 +1,36 @@
+{
+  "name": "flight-on-time",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": "24.22.x"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "vitest run",
+    "test:contracts": "node scripts/validate-contracts.mjs",
+    "test:e2e:web": "playwright test tests/e2e-web",
+    "test:e2e:android": "maestro test tests/e2e-android"
+  },
+  "devDependencies": {
+    "@apidevtools/swagger-parser": "^12.1.0",
+    "@playwright/test": "^1.65.1",
+    "@types/node": "^24.10.0",
+    "@types/react": "^19.2.0",
+    "eslint": "^9.39.1",
+    "eslint-plugin-react-hooks": "^7.0.0",
+    "prettier": "^3.10.1",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.73.0",
+    "vitest": "^5.1.1"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "better-sqlite3@13.2.0": true
+  }
+}

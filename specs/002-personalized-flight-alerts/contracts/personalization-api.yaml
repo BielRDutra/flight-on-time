@@ -1,0 +1,673 @@
+openapi: 3.1.0
+info:
+  title: Flight On Time Personalization API
+  version: 1.0.0
+  description: >
+    Account preference and cross-airport event-filter contract extending
+    specs/001-flight-activity-monitor/contracts/openapi.yaml.
+servers:
+  - url: https://api.example.invalid
+    description: Placeholder; deployment host is selected during implementation.
+tags:
+  - name: Authentication
+  - name: Preferences
+  - name: Activity
+  - name: Installations
+paths:
+  /v1/auth/google/challenge:
+    get:
+      tags: [Authentication]
+      summary: Create a short-lived Google sign-in challenge
+      parameters:
+        - in: query
+          name: platform
+          required: true
+          schema:
+            type: string
+            enum: [web, android]
+      responses:
+        "200":
+          description: Single-use challenge and nonce; web challenge is also bound in an HttpOnly cookie
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+              description: Set for web challenges; omitted for Android.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GoogleAuthChallenge"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /v1/auth/google/session:
+    post:
+      tags: [Authentication]
+      summary: Verify a Google ID token and issue an application session
+      description: >
+        Verify signature, issuer, the explicitly allowed audience for the challenge platform,
+        expiry, and the nonce bound to the unused challenge. Android Credential Manager uses the
+        configured web/server client ID as serverClientId. Web requests bind the challenge through
+        an HttpOnly cookie and require Google's g_csrf_token double-submit check plus an allowed
+        Origin. The Google ID token is used only for this exchange and is never logged or
+        persisted. Web receives an HttpOnly session cookie; Android receives an opaque app session
+        token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GoogleNativeSessionInput"
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/GoogleWebSessionInput"
+      responses:
+        "201":
+          description: Android application session issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NativeSession"
+        "204":
+          description: Web application session issued in a Secure, HttpOnly, SameSite cookie
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+              description: The opaque application session cookie; never exposed to JavaScript.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /v1/me/session:
+    delete:
+      tags: [Authentication]
+      summary: Revoke the current application session on sign-out
+      security:
+        - AccountBearer: []
+        - AccountSessionCookie: []
+      responses:
+        "204":
+          description: Current session revoked; web cookie cleared when applicable
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/me/preferences:
+    get:
+      tags: [Preferences]
+      summary: Get the authenticated account's saved preference snapshot
+      security:
+        - AccountBearer: []
+        - AccountSessionCookie: []
+      responses:
+        "200":
+          description: Snapshot and current revision; a new account receives empty defaults
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: Strong revision tag required for conditional updates
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PreferenceSnapshot"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    put:
+      tags: [Preferences]
+      summary: Atomically replace the authenticated account's preferences
+      description: >
+        Requires If-Match with the ETag returned by GET. A stale revision is rejected; clients
+        must fetch the current snapshot and resolve the conflict rather than silently overwrite.
+      security:
+        - AccountBearer: []
+        - AccountSessionCookie: []
+      parameters:
+        - in: header
+          name: If-Match
+          required: true
+          schema:
+            type: string
+          description: ETag from the last successful preference read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PreferenceUpdate"
+      responses:
+        "200":
+          description: Preferences saved as one new revision
+          headers:
+            ETag:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PreferenceSnapshot"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "412":
+          description: The preference revision changed; fetch and resolve before retrying
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /v1/filter-options:
+    get:
+      tags: [Activity]
+      summary: List supported event categories and verified airline options
+      description: >
+        Airline options include only identifiers backed by configured, verified provider metadata
+        or an authorized mapping. An empty airline list is a valid limited-coverage result.
+      parameters:
+        - in: query
+          name: airportIcao
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+              pattern: "^[A-Z0-9]{4}$"
+            maxItems: 100
+          style: form
+          explode: true
+      responses:
+        "200":
+          description: Filter choices and their source status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FilterOptions"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+  /v1/events:
+    get:
+      tags: [Activity]
+      summary: List recent inferred events using optional filter facets
+      description: >
+        Multiple values within one facet are ORed; active facets are ANDed. An omitted facet
+        does not restrict results. Events are bounded recent activity, not a historical archive.
+      parameters:
+        - in: query
+          name: airportIcao
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+              pattern: "^[A-Z0-9]{4}$"
+            maxItems: 100
+          style: form
+          explode: true
+        - in: query
+          name: airlineId
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+              minLength: 1
+              maxLength: 120
+            maxItems: 100
+          style: form
+          explode: true
+        - in: query
+          name: eventType
+          required: false
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/EventType"
+            maxItems: 3
+          style: form
+          explode: true
+        - in: query
+          name: cursor
+          required: false
+          schema:
+            type: string
+            maxLength: 512
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        "200":
+          description: Filtered recent events with source freshness
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/SourceUnavailable"
+  /v1/me/installations/{installationId}/claim:
+    post:
+      tags: [Installations]
+      summary: Associate the caller's verified installation with the authenticated account
+      description: >
+        Requires proof of both account identity and installation ownership. An installation
+        already claimed by a different account cannot be moved implicitly.
+      security:
+        - AccountBearer: []
+          InstallationBearer: []
+        - AccountSessionCookie: []
+          WebInstallationCookie: []
+      parameters:
+        - $ref: "#/components/parameters/InstallationId"
+      responses:
+        "204":
+          description: Installation associated with the caller's account
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Installation is already associated with another account
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      tags: [Installations]
+      summary: Unlink the current installation on account sign-out
+      description: Disables its push subscription and removes its account association; saved account preferences remain.
+      security:
+        - AccountBearer: []
+          InstallationBearer: []
+        - AccountSessionCookie: []
+          WebInstallationCookie: []
+      parameters:
+        - $ref: "#/components/parameters/InstallationId"
+      responses:
+        "204":
+          description: Installation unlinked and its push delivery disabled
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/me/installations/{installationId}/push-subscription:
+    put:
+      tags: [Installations]
+      summary: Register a consented push subscription for this account-owned installation
+      description: >
+        Call only after explicit user consent and platform permission. The server records the
+        consent time; it is not supplied by the client.
+      security:
+        - AccountBearer: []
+          InstallationBearer: []
+        - AccountSessionCookie: []
+          WebInstallationCookie: []
+      parameters:
+        - $ref: "#/components/parameters/InstallationId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PushSubscriptionInput"
+      responses:
+        "204":
+          description: Subscription saved; secret endpoint/token is not returned
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+    delete:
+      tags: [Installations]
+      summary: Disable push delivery for this account-owned installation
+      security:
+        - AccountBearer: []
+          InstallationBearer: []
+        - AccountSessionCookie: []
+          WebInstallationCookie: []
+      parameters:
+        - $ref: "#/components/parameters/InstallationId"
+      responses:
+        "204":
+          description: Subscription disabled
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+components:
+  parameters:
+    InstallationId:
+      in: path
+      name: installationId
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+  securitySchemes:
+    AccountBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque application session token
+    AccountSessionCookie:
+      type: apiKey
+      in: cookie
+      name: fta_account_session
+    InstallationBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque installation credential
+    WebInstallationCookie:
+      type: apiKey
+      in: cookie
+      name: fta_session
+  schemas:
+    GoogleAuthChallenge:
+      type: object
+      additionalProperties: false
+      required: [challengeId, nonce, expiresAt]
+      properties:
+        challengeId:
+          type: string
+          description: Opaque single-use challenge ID; the server stores only its hash.
+        nonce:
+          type: string
+          description: Nonce to include in the Google sign-in request; the server stores only its hash.
+        expiresAt:
+          type: string
+          format: date-time
+    GoogleNativeSessionInput:
+      type: object
+      additionalProperties: false
+      required: [challengeId, credential]
+      properties:
+        challengeId:
+          type: string
+        credential:
+          type: string
+          minLength: 1
+          description: Google ID token from Android Credential Manager; never persist or log it.
+    GoogleWebSessionInput:
+      type: object
+      additionalProperties: false
+      required: [credential, g_csrf_token]
+      properties:
+        credential:
+          type: string
+          minLength: 1
+          description: Google Identity Services ID token; never persist or log it.
+        g_csrf_token:
+          type: string
+          minLength: 1
+          description: Must exactly match the GIS cookie value.
+    NativeSession:
+      type: object
+      additionalProperties: false
+      required: [sessionToken, expiresAt]
+      properties:
+        sessionToken:
+          type: string
+          minLength: 1
+          description: Opaque application session token; store only in Android SecureStore.
+        expiresAt:
+          type: string
+          format: date-time
+    EventType:
+      type: string
+      enum: [go_around, holding_or_orbit, diversion_candidate]
+    PreferenceUpdate:
+      type: object
+      unevaluatedProperties: false
+      required: [airportIcaos, airlineIds, eventTypes, notificationsEnabled]
+      properties:
+        airportIcaos:
+          type: array
+          uniqueItems: true
+          maxItems: 100
+          items:
+            type: string
+            pattern: "^[A-Z0-9]{4}$"
+        airlineIds:
+          type: array
+          uniqueItems: true
+          maxItems: 100
+          items:
+            type: string
+            minLength: 1
+            maxLength: 120
+        eventTypes:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/EventType"
+        notificationsEnabled:
+          type: boolean
+          description: >
+            Account-level opt-in, set only after explicit user action. If true, airportIcaos and
+            eventTypes must both be non-empty or the update is rejected. Delivery also requires
+            per-device consent and operating-system or browser permission.
+    PreferenceSnapshot:
+      type: object
+      unevaluatedProperties: false
+      required: [airportIcaos, airlineIds, eventTypes, notificationsEnabled, revision, updatedAt]
+      properties:
+        airportIcaos:
+          type: array
+          uniqueItems: true
+          maxItems: 100
+          items:
+            type: string
+            pattern: "^[A-Z0-9]{4}$"
+        airlineIds:
+          type: array
+          uniqueItems: true
+          maxItems: 100
+          items:
+            type: string
+            minLength: 1
+            maxLength: 120
+        eventTypes:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/EventType"
+        notificationsEnabled:
+          type: boolean
+          description: >
+            Account-level opt-in. Delivery also requires per-device consent and operating-system
+            or browser permission.
+        revision:
+          type: integer
+          minimum: 0
+        updatedAt:
+          type: [string, "null"]
+          format: date-time
+    FilterOptions:
+      type: object
+      required: [eventTypes, airlines, sourceStatus, generatedAt]
+      properties:
+        eventTypes:
+          type: array
+          items:
+            $ref: "#/components/schemas/EventType"
+        airlines:
+          type: array
+          items:
+            $ref: "#/components/schemas/AirlineReference"
+        sourceStatus:
+          type: string
+          enum: [current, stale, unavailable, limited]
+        generatedAt:
+          type: string
+          format: date-time
+    AirlineReference:
+      type: object
+      required: [airlineId, displayName, sourceId]
+      properties:
+        airlineId:
+          type: string
+        displayName:
+          type: string
+        sourceId:
+          type: string
+        sourceUpdatedAt:
+          type: [string, "null"]
+          format: date-time
+    InferredEvent:
+      type: object
+      required: [eventId, airportIcao, eventType, classificationStatus, firstObservedAt, lastObservedAt, confidence, sources, status]
+      properties:
+        eventId:
+          type: string
+        airportIcao:
+          type: string
+          pattern: "^[A-Z0-9]{4}$"
+        eventType:
+          $ref: "#/components/schemas/EventType"
+        classificationStatus:
+          type: string
+          enum: [inferred, directly_reported]
+        airline:
+          oneOf:
+            - $ref: "#/components/schemas/AirlineReference"
+            - type: "null"
+        aircraftIcao24:
+          type: [string, "null"]
+        firstObservedAt:
+          type: string
+          format: date-time
+        lastObservedAt:
+          type: string
+          format: date-time
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        sources:
+          type: array
+          items:
+            type: object
+            required: [id, observedAt]
+            properties:
+              id:
+                type: string
+              observedAt:
+                type: string
+                format: date-time
+        status:
+          type: string
+          enum: [current, stale, expired]
+    EventPage:
+      type: object
+      required: [items, sourceStatus, generatedAt, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/InferredEvent"
+        sourceStatus:
+          type: string
+          enum: [current, stale, unavailable, limited]
+        generatedAt:
+          type: string
+          format: date-time
+        nextCursor:
+          type: [string, "null"]
+    PushSubscriptionInput:
+      type: object
+      additionalProperties: false
+      required: [platform, subscription, consent]
+      properties:
+        platform:
+          type: string
+          enum: [android, web]
+        subscription:
+          oneOf:
+            - $ref: "#/components/schemas/AndroidPushSubscription"
+            - $ref: "#/components/schemas/WebPushSubscription"
+        consent:
+          type: boolean
+          const: true
+          description: Explicit confirmation of user consent; the server records the timestamp.
+    AndroidPushSubscription:
+      type: object
+      additionalProperties: false
+      required: [token]
+      properties:
+        token:
+          type: string
+          description: Secret Android push token; never log or return after registration.
+    WebPushSubscription:
+      type: object
+      additionalProperties: false
+      required: [endpoint, keys]
+      properties:
+        endpoint:
+          type: string
+          format: uri
+          description: Secret capability URL; never log or return after registration.
+        keys:
+          type: object
+          additionalProperties: false
+          required: [p256dh, auth]
+          properties:
+            p256dh:
+              type: string
+            auth:
+              type: string
+    Error:
+      type: object
+      required: [code, message, requestId]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        requestId:
+          type: string
+  responses:
+    BadRequest:
+      description: Invalid request input
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: Missing or invalid account or installation credential
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: Installation or resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    RateLimited:
+      description: Request or provider quota exceeded
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    SourceUnavailable:
+      description: Upstream provider unavailable or no report is available
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
