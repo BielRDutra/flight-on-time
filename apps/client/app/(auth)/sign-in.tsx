@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import {
+  AndroidGoogleSignInError,
+  signInWithAndroidGoogle,
+} from '../../src/platform/auth/android-google';
+import {
   beginWebGoogleSignIn,
   type WebGoogleSignInError,
 } from '../../src/platform/auth/web-google';
@@ -9,20 +13,29 @@ type ScreenState = 'loading' | 'ready' | 'error' | 'cancelled' | 'signed-in';
 
 const apiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL ?? '';
 const googleWebClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ?? '';
-const hasWebConfiguration = Boolean(apiBaseUrl && googleWebClientId);
+const hasAuthConfiguration = Boolean(apiBaseUrl && googleWebClientId);
+const isSupportedPlatform = Platform.OS === 'web' || Platform.OS === 'android';
 
 export default function SignInScreen() {
-  const [state, setState] = useState<ScreenState>(() =>
-    Platform.OS === 'web' && hasWebConfiguration ? 'loading' : 'error',
-  );
-  const [message, setMessage] = useState(() => {
-    if (Platform.OS !== 'web') {
-      return 'O acesso Android ainda não foi configurado.';
+  const [state, setState] = useState<ScreenState>(() => {
+    if (!isSupportedPlatform || !hasAuthConfiguration) {
+      return 'error';
     }
 
-    return hasWebConfiguration
+    return Platform.OS === 'web' ? 'loading' : 'ready';
+  });
+  const [message, setMessage] = useState(() => {
+    if (!isSupportedPlatform) {
+      return 'Esta plataforma ainda não é compatível com o acesso Google.';
+    }
+
+    if (!hasAuthConfiguration) {
+      return 'Configure a API e o cliente OAuth web para habilitar o acesso.';
+    }
+
+    return Platform.OS === 'web'
       ? 'Preparando o acesso seguro da sua conta.'
-      : 'Configure a API e o cliente OAuth web para habilitar o acesso.';
+      : 'Entre com sua conta Google para salvar suas preferências entre dispositivos.';
   });
   const cancelRef = useRef<((notifyUser?: boolean) => void) | undefined>(undefined);
   const [attempt, setAttempt] = useState(0);
@@ -30,7 +43,7 @@ export default function SignInScreen() {
   useEffect(() => {
     cancelRef.current = undefined;
 
-    if (Platform.OS !== 'web' || !hasWebConfiguration) {
+    if (Platform.OS !== 'web' || !hasAuthConfiguration) {
       return;
     }
 
@@ -97,11 +110,47 @@ export default function SignInScreen() {
     };
   }, [attempt]);
 
+  async function startAndroidSignIn(): Promise<void> {
+    if (!hasAuthConfiguration) {
+      return;
+    }
+
+    setState('loading');
+    setMessage('Confirmando sua conta Google com segurança.');
+
+    try {
+      await signInWithAndroidGoogle({
+        apiBaseUrl,
+        googleWebClientId,
+      });
+      setState('signed-in');
+      setMessage('Acesso confirmado com segurança.');
+    } catch (error) {
+      if (error instanceof AndroidGoogleSignInError && error.code === 'cancelled') {
+        setState('cancelled');
+        setMessage(error.message);
+        return;
+      }
+
+      setState('error');
+      setMessage(
+        error instanceof AndroidGoogleSignInError
+          ? error.message
+          : 'Não foi possível concluir o acesso. Tente novamente.',
+      );
+    }
+  }
+
   function cancelSignIn(): void {
     cancelRef.current?.();
   }
 
   function retrySignIn(): void {
+    if (Platform.OS === 'android') {
+      void startAndroidSignIn();
+      return;
+    }
+
     setState('loading');
     setMessage('Preparando um novo acesso seguro.');
     setAttempt((currentAttempt) => currentAttempt + 1);
@@ -126,6 +175,15 @@ export default function SignInScreen() {
           nativeID="google-sign-in-button"
           style={[styles.googleButton, Platform.OS !== 'web' && styles.hidden]}
         />
+        {Platform.OS === 'android' && hasAuthConfiguration && state === 'ready' && (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => void startAndroidSignIn()}
+            style={styles.androidSignInButton}
+          >
+            <Text style={styles.androidSignInText}>Entrar com Google</Text>
+          </Pressable>
+        )}
         {state === 'loading' && (
           <ActivityIndicator
             accessibilityLabel="Preparando acesso"
@@ -146,12 +204,12 @@ export default function SignInScreen() {
           </Text>
         )}
         {state === 'ready' && <Text style={styles.status}>{message}</Text>}
-        {state === 'ready' && (
+        {Platform.OS === 'web' && state === 'ready' && (
           <Pressable accessibilityRole="button" onPress={cancelSignIn} style={styles.cancelButton}>
             <Text style={styles.cancelText}>Cancelar</Text>
           </Pressable>
         )}
-        {state === 'cancelled' && (
+        {(state === 'cancelled' || (Platform.OS === 'android' && state === 'error' && hasAuthConfiguration)) && (
           <Pressable accessibilityRole="button" onPress={retrySignIn} style={styles.cancelButton}>
             <Text style={styles.cancelText}>Tentar novamente</Text>
           </Pressable>
@@ -226,6 +284,20 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     minHeight: 44,
     width: 280,
+  },
+  androidSignInButton: {
+    alignItems: 'center',
+    backgroundColor: '#24534c',
+    borderRadius: 12,
+    justifyContent: 'center',
+    minHeight: 48,
+    paddingHorizontal: 24,
+    width: 280,
+  },
+  androidSignInText: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '700',
   },
   hidden: {
     display: 'none',

@@ -1,6 +1,8 @@
 const REDACTED_AUTH_FIELDS = [
   'req.headers.authorization',
   'req.headers.cookie',
+  'req.headers["x-installation-authorization"]',
+  'req.headers["x-installation-credential"]',
   'req.body.challengeId',
   'req.body.credential',
   'req.body.g_csrf_token',

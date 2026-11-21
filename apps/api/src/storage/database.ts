@@ -54,3 +54,14 @@ export function runMigrations(database: SqliteDatabase, migrationsDirectory: str
     applyMigration();
   }
 }
+
+export async function backupDatabase(
+  source: SqliteDatabase,
+  destinationPath: string,
+): Promise<void> {
+  const resolvedDestination = isAbsolute(destinationPath)
+    ? destinationPath
+    : resolve(destinationPath);
+  mkdirSync(dirname(resolvedDestination), { recursive: true });
+  await source.backup(resolvedDestination);
+}

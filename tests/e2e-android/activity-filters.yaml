@@ -1,0 +1,14 @@
+appId: com.flightontime.app
+---
+- launchApp
+- assertVisible: "Acompanhe mudanças no voo"
+- tapOn:
+    text: "Entrar com Google"
+    optional: true
+- tapOn: "Filtrar aeroporto SBBR"
+- assertVisible: "Classificação inferida"
+- assertVisible: "Companhia desconhecida"
+- tapOn: "Filtrar categoria Arremetida"
+- assertVisible: "LATAM Airlines Brasil"
+- tapOn: "Limpar todos os filtros"
+- assertVisible: "Condições meteorológicas são apresentadas apenas como contexto"

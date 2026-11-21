@@ -1,0 +1,20 @@
+appId: com.flightontime.app
+---
+- launchApp
+- assertVisible: "Acompanhe mudanças no voo"
+- tapOn:
+    text: "Entrar com Google"
+    optional: true
+- assertVisible: "Preferências da conta"
+- tapOn: "Preferência aeroporto SBBR"
+- tapOn: "Preferência categoria Arremetida"
+- tapOn: "Salvar preferências"
+- assertVisible: "Preferências sincronizadas"
+- tapOn:
+    text: "Sair da conta"
+    optional: true
+- launchApp
+- tapOn:
+    text: "Entrar com Google"
+    optional: true
+- assertVisible: "Preferências sincronizadas"
