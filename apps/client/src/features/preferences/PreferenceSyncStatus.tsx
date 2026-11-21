@@ -1,6 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import type { PreferenceSyncState } from '../../storage/preference-cache.js';
-import type { ConflictResolutionStrategy } from './preference-sync.js';
+import type { PreferenceSyncState } from '../../storage/preference-cache';
+import type { ConflictResolutionStrategy } from './preference-sync';
 
 export interface PreferenceSyncStatusProps {
   syncState: PreferenceSyncState;

@@ -1,6 +1,6 @@
 import type { AirlineReference, EventType } from '@flight-on-time/contracts';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import type { ActivityFilterFacet, ActivityFilterSelection } from './use-filtered-events.js';
+import type { ActivityFilterFacet, ActivityFilterSelection } from './use-filtered-events';
 
 const EVENT_TYPE_LABELS: Record<EventType, string> = {
   go_around: 'Arremetida',

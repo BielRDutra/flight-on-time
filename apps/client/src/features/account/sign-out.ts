@@ -1,8 +1,8 @@
 import {
   clearStoredAndroidSession,
   type AndroidSecureSessionStore,
-} from '../../platform/auth/android-google.js';
-import type { AccountPreferenceCache } from '../../storage/preference-cache.js';
+} from '../../platform/auth/android-google';
+import type { AccountPreferenceCache } from '../../storage/preference-cache';
 
 export interface SignOutAccountOptions {
   platform: 'android' | 'web';

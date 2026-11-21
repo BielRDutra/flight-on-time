@@ -15,7 +15,7 @@
       "@react-native-google-signin/google-signin"
     ],
     "experiments": {
-      "typedRoutes": true
+      "typedRoutes": false
     },
     "android": {
       "package": "com.flightontime.app"

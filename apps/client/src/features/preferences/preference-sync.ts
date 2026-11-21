@@ -7,7 +7,7 @@ import {
   EMPTY_PREFERENCE_SNAPSHOT,
   type AccountPreferenceCache,
   type CachedAccountPreferenceState,
-} from '../../storage/preference-cache.js';
+} from '../../storage/preference-cache';
 
 export type ConflictResolutionStrategy = 'keep_server' | 'retry_local';
 

@@ -1,5 +1,5 @@
 import type { WebPushSubscription } from '@flight-on-time/contracts';
-import type { DeviceNotificationPermissionStatus } from './android-push.js';
+import type { DeviceNotificationPermissionStatus } from './android-push';
 
 export interface WebPushAdapter {
   isSupported(): boolean;

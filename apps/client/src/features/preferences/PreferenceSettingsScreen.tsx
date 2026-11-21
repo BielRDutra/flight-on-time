@@ -6,9 +6,9 @@ import {
   type PreferenceUpdate,
 } from '@flight-on-time/contracts';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import type { PreferenceSyncState } from '../../storage/preference-cache.js';
-import type { ConflictResolutionStrategy, PreferenceSyncCoordinator } from './preference-sync.js';
-import { PreferenceSyncStatus } from './PreferenceSyncStatus.js';
+import type { PreferenceSyncState } from '../../storage/preference-cache';
+import type { ConflictResolutionStrategy, PreferenceSyncCoordinator } from './preference-sync';
+import { PreferenceSyncStatus } from './PreferenceSyncStatus';
 
 const EVENT_TYPE_LABELS: Record<EventType, string> = {
   go_around: 'Arremetida',

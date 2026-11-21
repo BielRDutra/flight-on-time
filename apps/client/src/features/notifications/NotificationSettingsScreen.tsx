@@ -7,12 +7,12 @@ import {
   registerAndroidPushSubscription,
   type AndroidNotificationAdapter,
   type DeviceNotificationPermissionStatus,
-} from '../../platform/notifications/android-push.js';
+} from '../../platform/notifications/android-push';
 import {
   createBrowserWebPushAdapter,
   registerWebPushSubscription,
   type WebPushAdapter,
-} from '../../platform/notifications/web-push.js';
+} from '../../platform/notifications/web-push';
 
 export interface NotificationSettingsScreenProps {
   platform: 'android' | 'web';

@@ -37,23 +37,37 @@ import { registerPreferenceRoutes } from './preferences/preference-routes.js';
 import { PreferenceService } from './preferences/preference-service.js';
 import { openDatabase, runMigrations } from './storage/database.js';
 
+const DEFAULT_DEV_GOOGLE_CLIENT_ID = 'local-dev-google-client-id.apps.googleusercontent.com';
+const DEFAULT_DEV_ALLOWED_ORIGINS =
+  'http://localhost:8081,http://127.0.0.1:8081,http://localhost:19006,http://127.0.0.1:19006';
+
 const environmentSchema = z
   .object({
     HOST: z.string().default('127.0.0.1'),
     PORT: z.coerce.number().int().min(1).max(65535).default(3000),
     DATABASE_PATH: z.string().min(1).default('./data/flight-on-time.sqlite'),
-    GOOGLE_WEB_CLIENT_ID: z.string().min(1),
-    WEB_ALLOWED_ORIGINS: z.string().default('http://localhost:8081'),
+    GOOGLE_WEB_CLIENT_ID: z.string().default(DEFAULT_DEV_GOOGLE_CLIENT_ID),
+    WEB_ALLOWED_ORIGINS: z.string().default(DEFAULT_DEV_ALLOWED_ORIGINS),
     PUSH_ENCRYPTION_KEY: z.string().optional(),
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   })
   .superRefine((env, context) => {
-    if (env.NODE_ENV === 'production' && !env.PUSH_ENCRYPTION_KEY?.trim()) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['PUSH_ENCRYPTION_KEY'],
-        message: 'PUSH_ENCRYPTION_KEY is required in production.',
-      });
+    if (env.NODE_ENV === 'production') {
+      if (!env.GOOGLE_WEB_CLIENT_ID.trim() || env.GOOGLE_WEB_CLIENT_ID === DEFAULT_DEV_GOOGLE_CLIENT_ID) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['GOOGLE_WEB_CLIENT_ID'],
+          message: 'GOOGLE_WEB_CLIENT_ID must be explicitly configured in production.',
+        });
+      }
+
+      if (!env.PUSH_ENCRYPTION_KEY?.trim()) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['PUSH_ENCRYPTION_KEY'],
+          message: 'PUSH_ENCRYPTION_KEY is required in production.',
+        });
+      }
     }
   });
 
@@ -103,11 +117,20 @@ export async function buildApiApp(configuration: ApiConfiguration): Promise<Fast
   app.register(cors, {
     origin: configuration.allowedWebOrigins,
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    exposedHeaders: ['ETag'],
   });
   app.register(rateLimit, {
-    max: 30,
+    max: configuration.environment === 'production' ? 30 : 300,
     timeWindow: '1 minute',
   });
+
+  const baseVerifier = new GoogleOAuthIdTokenVerifier();
+  const verifier: GoogleIdTokenVerifier =
+    configuration.idTokenVerifier ??
+    (configuration.environment === 'production'
+      ? baseVerifier
+      : createLocalDevApkTokenVerifier(baseVerifier, configuration.googleWebClientId));
 
   const authRepository = new SqliteAuthRepository(database);
   const authService = new GoogleAuthService({
@@ -116,7 +139,7 @@ export async function buildApiApp(configuration: ApiConfiguration): Promise<Fast
       android: [configuration.googleWebClientId],
     },
     repository: authRepository,
-    verifier: configuration.idTokenVerifier ?? new GoogleOAuthIdTokenVerifier(),
+    verifier,
     ...(configuration.now ? { now: configuration.now } : {}),
   });
 
@@ -188,4 +211,26 @@ async function start(): Promise<void> {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   await start();
+}
+
+function createLocalDevApkTokenVerifier(
+  fallback: GoogleIdTokenVerifier,
+  audience: string,
+): GoogleIdTokenVerifier {
+  return {
+    async verifyIdToken(token, audiences) {
+      if (token.startsWith('dev-apk-token:')) {
+        const [, subject = 'apk-tester-01', nonce = ''] = token.split(':');
+        return {
+          issuer: 'https://accounts.google.com',
+          subject,
+          audience,
+          expiresAt: Math.floor(Date.now() / 1000) + 3600,
+          nonce,
+        };
+      }
+
+      return fallback.verifyIdToken(token, audiences);
+    },
+  };
 }
